@@ -53,6 +53,7 @@
   const IDEA_STATUS = { someday: "Someday", next: "Next up", started: "Started" };
   const HABIT_TIME = { morning: "Morning", afternoon: "Afternoon", evening: "Evening", anytime: "Any time" };
   const FOCUS_GOAL = 120;
+  const GROW_KEYS = ["routine", "learn", "ideas"];
 
   // ---------- storage ----------
   const LS = "daybook.v1";
@@ -80,7 +81,11 @@
   let taskFilter = "open";
   let editFilter = "active";
   const ui = {};
-  try { tab = localStorage.getItem("daybook.tab") || "today"; } catch {}
+  let growTab = "routine";
+  try { tab = localStorage.getItem("daybook.tab") || "today"; growTab = localStorage.getItem("daybook.grow") || "routine"; } catch {}
+  if (GROW_KEYS.includes(tab)) { growTab = tab; tab = "grow"; }
+  if (!["today", "tasks", "edits", "meetings", "grow"].includes(tab)) tab = "today";
+  if (!GROW_KEYS.includes(growTab)) growTab = "routine";
 
   // ---------- derived ----------
   const logs = () => all("log");
@@ -96,12 +101,13 @@
   function greeting() { const h = new Date().getHours(); return h < 5 ? "Good night" : h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening"; }
 
   // ---------- render ----------
-  const TITLES = { today: "Today", tasks: "Tasks", edits: "Edits", meetings: "Meetings", learn: "Learning", ideas: "Ideas", routine: "Routine" };
+  const TITLES = { today: "Today", tasks: "Tasks", edits: "Edits", meetings: "Meetings", grow: "Grow" };
+  const GROW = { routine: "Routine", learn: "Learning", ideas: "Ideas" };
   function render(animate) {
     const now = new Date();
     $("#today-label").textContent = tab === "today" ? `${greeting()} · ${now.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" })}` : now.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" });
     $("#view-title").textContent = TITLES[tab];
-    document.querySelectorAll(".tabs button").forEach((b) => { if (b.dataset.tab === tab) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current"); });
+    document.querySelectorAll(".dock button").forEach((b) => { if (b.dataset.tab === tab) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current"); });
     const focused = document.activeElement && document.activeElement.id;
     const draft = $("#note-text") ? $("#note-text").value : "";
     const v = $("#view");
@@ -131,7 +137,7 @@
     const due = p.due ? `<span class="${dueClass(p.due, p.status === "exported")}">Due ${fmtDue(p.due)}</span>` : "";
     const mins = minutesFor(p.id);
     return `<div class="row">
-      <span class="type-ico" style="--c:${STATUS_COLOR[p.status] || "var(--orange)"};width:30px;height:30px;border-radius:8px">${ico("video")}</span>
+      <span class="tile-ico" style="--c:${STATUS_COLOR[p.status] || "var(--orange)"};width:30px;height:30px;border-radius:8px">${ico("video")}</span>
       <button class="row-main" data-action="edit" data-id="${p.id}">
         <span class="row-title">${esc(p.title)}</span>
         <span class="row-meta">${p.client ? `<span>${esc(p.client)}</span>` : ""}${due}${mins ? `<span>${fmtMin(mins)}</span>` : ""}${!p.client && !due && !mins ? "<span>Tap the stage to move it on</span>" : ""}</span>
@@ -147,7 +153,7 @@
       ${checkBtn(on, "toggle-habit", h.id, on ? "Undo for today" : "Done today", "var(--green)")}
       <button class="row-main" data-action="edit" data-id="${h.id}">
         <span class="row-title">${esc(h.title)}</span>
-        <span class="row-meta"><span>${esc(HABIT_TIME[h.time] || "Any time")}</span><span>${s ? `🔥 ${s} day${s > 1 ? "s" : ""}` : "Start a streak today"}</span></span>
+        <span class="row-meta"><span>${esc(HABIT_TIME[h.time] || "Any time")}</span>${s ? `<span class="streak">${ico("flame")}${s} day${s > 1 ? "s" : ""}</span>` : "<span>Start a streak today</span>"}</span>
       </button>
       <span class="habit-days" aria-hidden="true">${dots}</span>
     </div>`;
@@ -158,7 +164,7 @@
     const goal = +l.goal || 0;
     const pct = goal ? Math.min(100, Math.round((week / goal) * 100)) : 0;
     return `<div class="row" style="flex-wrap:wrap;row-gap:10px">
-      <span class="type-ico" style="--c:var(--purple);width:30px;height:30px;border-radius:8px">${ico("learn")}</span>
+      <span class="tile-ico" style="--c:var(--purple)">${ico("learn")}</span>
       <button class="row-main" data-action="edit" data-id="${l.id}">
         <span class="row-title">${esc(l.title)}</span>
         <span class="row-meta"><span>${fmtMin(week)}${goal ? ` of ${fmtMin(goal)}` : ""} this week</span><span>${fmtMin(total)} total</span></span>
@@ -169,7 +175,7 @@
   }
   function ideaRow(i) {
     return `<div class="row">
-      <span class="type-ico" style="--c:var(--yellow);width:30px;height:30px;border-radius:8px">${ico("idea")}</span>
+      <span class="tile-ico" style="--c:var(--yellow)">${ico("idea")}</span>
       <button class="row-main" data-action="edit" data-id="${i.id}">
         <span class="row-title">${esc(i.title)}</span>
         ${i.notes ? `<span class="row-meta"><span>${esc(i.notes.slice(0, 80))}${i.notes.length > 80 ? "…" : ""}</span></span>` : ""}
@@ -214,7 +220,7 @@
     }
     const opts = focusOptions().map((o) => `<option value="${esc(o.v)}">${esc(o.l)}</option>`).join("");
     return `<div class="card">
-      <div class="form" style="border-radius:0"><div class="field"><label for="timer-target">Focus on</label><select id="timer-target">${opts}</select></div></div>
+      <div class="field" style="padding:4px 18px"><label for="timer-target">Focus on</label><select id="timer-target">${opts}</select></div>
       <div style="padding:0 16px 16px"><button class="btn" style="width:100%" data-action="timer-start">Start focus timer</button></div></div>`;
   }
   function focusOptions() {
@@ -232,20 +238,22 @@
 
   function ringsCard(focusToday, habitsDone, habitsTotal, tasksDone, tasksDue) {
     const rings = [
-      { r: 52, w: 12, c: "var(--ring-1)", p: focusToday / FOCUS_GOAL },
-      { r: 38, w: 12, c: "var(--ring-2)", p: habitsTotal ? habitsDone / habitsTotal : 0 },
-      { r: 24, w: 12, c: "var(--ring-3)", p: tasksDue ? tasksDone / tasksDue : 0 },
+      { r: 52, w: 11, g: 1, p: focusToday / FOCUS_GOAL },
+      { r: 38, w: 11, g: 2, p: habitsTotal ? habitsDone / habitsTotal : 0 },
+      { r: 24, w: 11, g: 3, p: tasksDue ? tasksDone / tasksDue : 0 },
     ];
-    const svg = rings.map(({ r, w, c, p }) => {
+    const defs = [1, 2, 3].map((n) => `<linearGradient id="rg${n}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" style="stop-color:var(--ring-${n})"/><stop offset="1" style="stop-color:var(--ring-${n}b)"/></linearGradient>`).join("");
+    const svg = rings.map(({ r, w, g, p }) => {
       const len = 2 * Math.PI * r, off = len * (1 - Math.min(1, Math.max(0, p)));
-      return `<circle class="trk" cx="60" cy="60" r="${r}" stroke="${c}" stroke-width="${w}"/><circle class="val" cx="60" cy="60" r="${r}" stroke="${c}" stroke-width="${w}" stroke-dasharray="${len.toFixed(1)}" stroke-dashoffset="${len.toFixed(1)}" data-off="${(p > 0 ? Math.min(off, len - .01) : len).toFixed(1)}"/>`;
+      return `<circle class="trk" cx="60" cy="60" r="${r}" stroke-width="${w}"/><circle class="val" cx="60" cy="60" r="${r}" stroke="url(#rg${g})" stroke-width="${w}" stroke-dasharray="${len.toFixed(1)}" stroke-dashoffset="${len.toFixed(1)}" data-off="${(p > 0 ? Math.min(off, len - .01) : len).toFixed(1)}"/>`;
     }).join("");
+    const row = (n, k, v, of) => `<div class="legend-row"><span class="sw" style="--c:linear-gradient(135deg,var(--ring-${n}),var(--ring-${n}b))"></span><span class="k">${k}</span><span class="v">${v}<small> / ${of}</small></span></div>`;
     return `<div class="card rings-card">
-      <div class="rings"><svg viewBox="0 0 120 120" role="img" aria-label="Today's progress rings">${svg}</svg></div>
+      <div class="rings"><svg viewBox="0 0 120 120" role="img" aria-label="Today's progress: focus, routine and tasks"><defs>${defs}</defs>${svg}</svg></div>
       <div class="legend">
-        <div class="legend-row"><span class="k">Focus</span><span class="v" style="color:var(--ring-1)">${fmtMin(focusToday)}<small> / ${fmtMin(FOCUS_GOAL)}</small></span></div>
-        <div class="legend-row"><span class="k">Routine</span><span class="v" style="color:var(--ring-2)">${habitsDone}<small> / ${habitsTotal}</small></span></div>
-        <div class="legend-row"><span class="k">Tasks</span><span class="v" style="color:var(--ring-3)">${tasksDone}<small> / ${tasksDue}</small></span></div>
+        ${row(1, "Focus", fmtMin(focusToday), fmtMin(FOCUS_GOAL))}
+        ${row(2, "Routine", habitsDone, habitsTotal)}
+        ${row(3, "Tasks", tasksDone, tasksDue)}
       </div></div>`;
   }
 
@@ -347,6 +355,7 @@
         <button class="btn ghost" data-action="new" data-type="habit">Add habit</button>`;
     },
   };
+  VIEWS.grow = () => `<div class="seg" role="group" aria-label="Grow sections">${Object.entries(GROW).map(([k, l]) => `<button data-tab-go="${k}" aria-pressed="${growTab === k}">${l}</button>`).join("")}</div>${VIEWS[growTab]()}`;
   function byDue(a, b) { return (a.due || "9999") < (b.due || "9999") ? -1 : (a.due || "9999") > (b.due || "9999") ? 1 : (a.createdAt || 0) - (b.createdAt || 0); }
   function byHabitTime(a, b) { const o = Object.keys(HABIT_TIME); return o.indexOf(a.time || "anytime") - o.indexOf(b.time || "anytime") || a.createdAt - b.createdAt; }
 
@@ -402,7 +411,7 @@
 
   function openQuickAdd() {
     openSheet(`${sheetHead("New", cancelBtn)}
-      <div class="type-grid">${Object.entries(SCHEMAS).map(([k, s]) => `<button class="type-btn" data-action="new" data-type="${k}"><span class="type-ico" style="--c:${TYPE_META[k][0]}">${ico(TYPE_META[k][1])}</span><span><b>${s.name}</b><span>${TYPE_META[k][2]}</span></span></button>`).join("")}</div>`);
+      <div class="type-grid">${Object.entries(SCHEMAS).map(([k, s]) => `<button class="type-btn" data-action="new" data-type="${k}"><span class="tile-ico" style="--c:${TYPE_META[k][0]}">${ico(TYPE_META[k][1])}</span><span><b>${s.name}</b><span>${TYPE_META[k][2]}</span></span></button>`).join("")}</div>`);
   }
 
   function openEditor(type, id) {
@@ -531,6 +540,7 @@
   window.addEventListener("scroll", () => $(".top").classList.toggle("scrolled", window.scrollY > 8), { passive: true });
 
   function setTab(t) {
+    if (GROW_KEYS.includes(t)) { const same = tab === "grow" && growTab === t; growTab = t; t = "grow"; try { localStorage.setItem("daybook.grow", growTab); } catch {} if (!same) { tab = ""; } }
     if (t === tab) { window.scrollTo({ top: 0, behavior: "smooth" }); return; }
     tab = t; try { localStorage.setItem("daybook.tab", t); } catch {}
     window.scrollTo(0, 0); render(true);
@@ -686,7 +696,7 @@
       ${installEvt && !isInstalled() ? `<button class="btn" data-action="install">Install Daybook on this phone</button>` : ""}
       <div class="group-label">Sync</div>
       ${signedIn ? `<div class="form">
-          <div class="settings-row"><span class="type-ico" style="--c:var(--green);width:30px;height:30px;border-radius:8px">${ico("check")}</span><div style="flex:1;min-width:0"><div style="font-weight:500;overflow-wrap:anywhere">${esc(session.user.email)}</div><div class="help" style="padding:0" id="sync-status">${esc(syncLine())}</div></div></div>
+          <div class="settings-row"><span class="tile-ico" style="--c:var(--green)">${ico("check")}</span><div style="flex:1;min-width:0"><div style="font-weight:500;overflow-wrap:anywhere">${esc(session.user.email)}</div><div class="help" style="padding:0" id="sync-status">${esc(syncLine())}</div></div></div>
         </div>
         <div class="sheet-actions"><button class="btn ghost" data-action="sync-now">Sync now</button><button class="btn danger" data-action="sign-out">Sign out</button></div>`
       : sb ? `<div class="form">
