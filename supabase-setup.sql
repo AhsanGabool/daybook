@@ -24,6 +24,11 @@ drop trigger if exists items_touch on public.items;
 create trigger items_touch before insert or update on public.items
   for each row execute function public.items_touch();
 
+-- Let signed-in users reach the table through the API (row-level security below still limits them to their own rows).
+grant usage on schema public to authenticated;
+grant select, insert, update, delete on public.items to authenticated;
+revoke all on public.items from anon;
+
 alter table public.items enable row level security;
 
 drop policy if exists "own rows: read"   on public.items;
