@@ -492,7 +492,7 @@
   }
 
   // ---------- sync (Supabase) ----------
-  let sb = null, session = null, syncing = false, syncState = "off", syncMsg = "", syncTimer = null;
+  let sb = null, session = null, syncing = false, syncStarted = 0, syncRun = 0, syncState = "off", syncMsg = "", syncTimer = null;
   const cfg = () => ({
     url: (store.meta.sbUrl || (window.LT_CONFIG || {}).supabaseUrl || "").trim(),
     key: (store.meta.sbKey || (window.LT_CONFIG || {}).supabaseAnonKey || "").trim(),
@@ -514,7 +514,8 @@
       sb = window.supabase.createClient(url, key, { auth: { persistSession: true, autoRefreshToken: true, storageKey: "daybook.auth" } });
       const { data } = await sb.auth.getSession();
       session = data.session;
-      sb.auth.onAuthStateChange((_evt, s) => { session = s; if (s) syncNow(); else setSync("off"); });
+      // Never call Supabase from inside this callback directly: it holds the auth lock and the call would hang.
+      sb.auth.onAuthStateChange((_evt, s) => { session = s; setTimeout(() => { if (s) syncNow(); else setSync("off"); }, 0); });
       if (session) syncNow(); else setSync("off");
     } catch (e) { sb = null; setSync("error", e.message || "bad settings"); }
   }
@@ -522,16 +523,18 @@
 
   async function syncNow(manual) {
     if (!sb || !session) { if (manual) toast("Sign in first."); return; }
-    if (syncing) return;
+    if (syncing && Date.now() - syncStarted < 30000) return; // a sync stuck for 30 s no longer blocks new ones
     if (!navigator.onLine) { setSync("error", "you're offline; changes are kept and sync when you're back online"); return; }
-    syncing = true; setSync("syncing");
+    const run = ++syncRun;
+    syncing = true; syncStarted = Date.now(); setSync("syncing");
+    const timeout = (p) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("the server took too long to answer")), 20000))]);
     try {
       // push
       const ids = Object.keys(store.meta.dirty);
       const sent = {};
       const rows = ids.map((id) => store.items[id]).filter(Boolean).map((it) => { sent[it.id] = it.updatedAt; return { id: it.id, user_id: session.user.id, data: it, updated_at: it.updatedAt, deleted: !!it.deleted }; });
       for (let i = 0; i < rows.length; i += 400) {
-        const { error } = await sb.from("items").upsert(rows.slice(i, i + 400));
+        const { error } = await timeout(sb.from("items").upsert(rows.slice(i, i + 400)));
         if (error) throw error;
       }
       for (const id of Object.keys(sent)) if (store.items[id] && store.items[id].updatedAt <= sent[id]) delete store.meta.dirty[id];
@@ -540,7 +543,7 @@
       for (let page = 0; page < 50; page++) {
         let q = sb.from("items").select("data,synced_at").order("synced_at", { ascending: true }).limit(1000);
         if (since) q = q.gt("synced_at", since);
-        const { data, error } = await q;
+        const { data, error } = await timeout(q);
         if (error) throw error;
         for (const row of data) {
           const r = row.data, local = store.items[r.id];
@@ -558,7 +561,7 @@
       const msg = e.message || String(e);
       setSync("error", /relation .*items.* does not exist|Could not find the table/i.test(msg) ? "the items table is missing; run supabase-setup.sql in Supabase" : msg);
       if (manual) toast("Sync failed: " + syncMsg);
-    } finally { syncing = false; }
+    } finally { if (run === syncRun) syncing = false; }
   }
 
   async function auth(mode) {
@@ -569,7 +572,7 @@
     const { data, error } = await fn;
     if (error) { toast(error.message); return; }
     if (mode === "up" && !data.session) { toast("Check your email to confirm the account, then sign in."); return; }
-    session = data.session; closeSheet(); toast("Signed in. Syncing…"); syncNow();
+    session = data.session; closeSheet(); toast("Signed in. Syncing…"); setTimeout(() => syncNow(), 0);
   }
   async function signOut() { if (sb) await sb.auth.signOut(); session = null; setSync("off"); openSettings(); toast("Signed out. Your data stays on this device."); }
   function saveSyncConfig() {

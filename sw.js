@@ -1,6 +1,6 @@
 // Offline support: the app shell is cached so Daybook opens without a connection.
 // Bump VERSION whenever you change a file so phones pick up the new build.
-const VERSION = "daybook-v3";
+const VERSION = "daybook-v4";
 const SHELL = ["./", "index.html", "styles.css", "app.js", "config.js", "manifest.webmanifest", "icons/icon.svg", "icons/icon-192.png", "icons/icon-512.png"];
 const CDN = ["https://cdn.jsdelivr.net/", "https://fonts.googleapis.com/", "https://fonts.gstatic.com/"];
 
